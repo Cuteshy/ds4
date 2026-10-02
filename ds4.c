@@ -58800,8 +58800,15 @@ static bool qwen4_graph_forward_tokens(ds4_qwen4_gpu_graph *g, const ds4_model *
      * rows keep the eager writes (verify/decode consumers read R directly),
      * as do layers feeding the PLE block and the last trunk layer whose
      * pre-mixer R the predictor captures; the debug dumps and an enabled FFN
-     * steering projection flush the write first when they read R. */
+     * steering projection flush the write first when they read R.  CUDA runs
+     * the two kernels back to back instead of fusing (ds4_qwen4_cuda.cuh), so
+     * deferring saves nothing there and the pending write would only add a
+     * hazard for the R readers; keep the eager combine. */
+#ifdef DS4_HAS_QWEN4_METAL
     const bool hc_defer = T > 3u && getenv("DS4_QWEN4_NO_HC_DEFER") == NULL;
+#else
+    const bool hc_defer = false;
+#endif
     g->hc_pending = false;
     for (uint32_t il = 0; il < n_trunk && ok; il++) {
         const ds4_layer_weights *l = &w->layer[il];
